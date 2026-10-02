@@ -333,54 +333,73 @@ function feed(dt,run){const sp=Math.hypot(V[0],V[2]);exh+=sp*dt*(run?.1:.012)+(L
  while(exh>=4){exh-=4;if(food>0){food--;hud()}}
  if(food<=0){if((starve+=dt)>4){starve=0;if(hp>1)hurt(1)}}else starve=0}
 /* ---------- multiplayer: shared world seed, presence for players and block edits ---------- */
-const ED=[],AV=new Map(),pend=[];let sq=0,lastSq=-1,ROOM=null,syncT=0;
-try{nm.value=localStorage.vpn||''}catch(e){}
-nm.oninput=()=>{try{localStorage.vpn=nm.value}catch(e){}};nm.onclick=e=>e.stopPropagation();
-function rec(x,y,z,b){ED.push(x+','+y+','+z+','+b+','+dim);if(ED.length>150)ED.shift();sq++}
-function applyE(x,y,z,b,d){if(y<0||y>=H||x<0||z<0||x>=W||z>=D)return;if(d==dim)set(x,y,z,b);else if(!d||nGen)(d?NW:OW)[x+W*(z+D*y)]=b;else pend.push([x,y,z,b])}
-function mkAvatar(id,name){
- const g=new THREE.Group(),col=new THREE.Color().setHSL(((parseInt(id.slice(0,6),36)||0)%360)/360,.55,.5),legs=[];
- const bx=(w,h,l,c,x,y,z,par=g)=>{const e=new THREE.Mesh(new THREE.BoxGeometry(w,h,l),new THREE.MeshBasicMaterial({color:c}));e.position.set(x,y,z);par.add(e)};
- bx(.5,.7,.25,col,0,1.05,0);bx(.5,.5,.5,0xe0b090,0,1.65,0);bx(.52,.15,.52,0x5a3a1e,0,1.93,0);
- [-.35,.35].forEach(x=>bx(.2,.7,.2,col,x,1.05,0));
- [-.125,.125].forEach(x=>{const pv=new THREE.Group();pv.position.set(x,.7,0);g.add(pv);bx(.24,.7,.24,0x3a3a8a,0,-.35,0,pv);legs.push(pv)});
- const c=document.createElement('canvas');c.width=256;c.height=64;const x=c.getContext('2d');x.font='40px VT323,monospace';x.textAlign='center';x.fillStyle='#0008';x.fillRect(0,8,256,48);x.fillStyle='#fff';x.fillText(name,128,46);
- const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false,fog:false}));sp.scale.set(2,.5,1);sp.position.y=2.35;g.add(sp);
- g.position.set(0,-100,0);scene.add(g);return{g,legs,tg:null,r:0,d:0,s:null,ph:0}}
-function avUpdate(dt){AV.forEach(a=>{if(!a.tg)return;const g=a.g,px=g.position.x,pz=g.position.z,k=Math.min(1,dt*12);a.g.visible=a.d==dim;
- if(g.position.y<-50)g.position.set(a.tg[0],a.tg[1],a.tg[2]);
- g.position.x+=(a.tg[0]-px)*k;g.position.y+=(a.tg[1]-g.position.y)*k;g.position.z+=(a.tg[2]-pz)*k;
- g.rotation.y=a.r+Math.PI;a.ph+=Math.hypot(g.position.x-px,g.position.z-pz)*3;
- a.legs.forEach((l,j)=>l.rotation.x=Math.sin(a.ph)*(j?-1:1)*.7)})}
-function sendP(){if(!ROOM)return;
- const o={n:(nm.value||'Player').replace(/[^\w .-]/g,'').slice(0,16)||'Player',x:+P[0].toFixed(2),y:+P[1].toFixed(2),z:+P[2].toFixed(2),r:+yaw.toFixed(2),p:+pitch.toFixed(2),d:dim,t:+tod.toFixed(3),dn:dayN};
- if(sq!=lastSq){o.s=sq;o.e=ED.join(';');lastSq=sq}ROOM.presence(o).catch(()=>{})}
-async function connect(){
- if(typeof claude=='undefined')return;
- try{const room=await claude.use('room');if(!room)return;ROOM=room;
-  room.onPeers(ch=>{
-   ch.left.forEach(p=>{const a=AV.get(p.peer);if(a){scene.remove(a.g);AV.delete(p.peer)}});
-   ch.peers.forEach(p=>{if(p.isMe)return;const q=p.presence;if(![q.x,q.y,q.z].every(Number.isFinite))return;
-    let a=AV.get(p.peer);if(!a){a=mkAvatar(p.peer,String(q.n||'Player').slice(0,16));AV.set(p.peer,a)}
-    a.tg=[q.x,q.y,q.z];a.r=+q.r||0;a.d=q.d|0;
-    if(Number.isFinite(q.s)&&typeof q.e=='string'&&q.s!==a.s){const L=q.e.split(';').filter(Boolean),n=a.s==null?L.length:Math.min(L.length,q.s-a.s);
-     L.slice(Math.max(0,L.length-n)).forEach(e=>{const v=e.split(',').map(Number);if(v.length==5&&v.every(Number.isFinite))applyE(v[0],v[1],v[2],v[3],v[4])});a.s=q.s}});
-   if(!syncT){const o=ch.peers.find(p=>!p.isMe&&Number.isFinite(p.presence.t));if(o){tod=o.presence.t;dayN=o.presence.dn|0||1;syncT=1}}
-   const v=ch.peers.filter(p=>p.kind=='viewer');
-   nt.textContent=v.length>1?'Online: '+v.map(p=>p.isMe?'you':String(p.presence.n||'Player').slice(0,16)).join(', '):'Online: just you (invite friends)'},()=>{});
-  setInterval(sendP,100)}catch(e){}}
-/* ---------- main loop ---------- */
-let last=performance.now();
-function loop(now){
- requestAnimationFrame(loop);const dt=Math.min(.05,Math.max(0,(now-last)/1000));last=now;
- if(locked)step(dt);sparks(dt);
- dirty.forEach(i=>build(i%NX,i/NX|0));dirty.clear();
- cam.rotation.set(pitch,yaw,0,'YXZ');cam.position.set(P[0],P[1]+1.62,P[2]);sky(locked?dt:0);if(locked)mobs(dt);avUpdate(dt);dm.style.opacity=Math.max(0,dm.style.opacity-dt*1.5);R.render(scene,cam)}
-function init(){
- gen();for(let i=0;i<NX*NZ;i++)build(i%NX,i/NX|0);
- let sx=W>>1;const sz=D>>1,top=(x,z)=>{let y=H-1;while(y>0&&!get(x,y,z))y--;return y};
- while(sx<W-4&&get(sx,top(sx,sz),sz)!=1)sx++;
- P[0]=sx+.5;P[1]=top(sx,sz)+1;P[2]=sz+.5;refresh();SPW=[P[0],P[1],P[2]];hud();connect();for(let i=0;i<80&&MOBS.length<12;i++)spawn(0,P[0]+(rnd()-.5)*70,P[2]+(rnd()-.5)*70);
- msg.textContent='Click to play';ov.onclick=()=>cv.requestPointerLock();requestAnimationFrame(loop)}
-setTimeout(init,50);
-</script></body></html>
+
+
+async function syncToServer() {
+  try {
+    const payload = {
+      clientID: 'player-' + Math.random().toString(36).slice(2, 9),
+      playerState: {
+        x: P[0], y: P[1], z: P[2],
+        r: yaw, p: pitch, name: nm.value || 'Player', dim
+      },
+      blocks: ED.slice(-50) // Send last 50 block edits
+    };
+    
+    const res = await fetch(SERVER + '/api/mutate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    
+    if (!res.ok) throw new Error('Sync failed');
+    lastSync = performance.now();
+  } catch (e) {
+    console.error('Sync error:', e.message);
+  }
+}
+
+async function pullFromServer() {
+  try {
+    const res = await fetch(SERVER + '/api/pull');
+    const data = await res.json();
+    
+    // Apply block changes
+    Object.entries(data.blocks || {}).forEach(([key, b]) => {
+      const [x, y, z] = key.split(',').map(Number);
+      if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+        applyE(x, y, z, b, dim);
+      }
+    });
+    
+    // Sync time
+    if (Number.isFinite(data.time?.tod)) {
+      tod = data.time.tod;
+      dayN = data.time.dayN || 1;
+    }
+    
+    if (!syncT) syncT = 1;
+  } catch (e) {
+    console.error('Pull error:', e.message);
+  }
+}
+
+function connect() {
+  // Verify server is reachable
+  fetch(SERVER + '/api/ping').catch(() => {
+    msg.textContent = '⚠ Server unreachable. Check your Replit URL in the code.';
+  });
+  
+  // Initial pull
+  pullFromServer();
+  
+  // Sync every 200ms
+  setInterval(() => {
+    if (locked) {
+      syncToServer();
+      if (performance.now() - lastSync > 5000) pullFromServer();
+    }
+  }, 200);
+  
+  nt.textContent = 'Online (sync active)';
+}
